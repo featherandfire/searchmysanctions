@@ -8,7 +8,8 @@ import ssl
 import urllib.request
 
 from flask import Blueprint, jsonify
-from config import CENSUS_API_KEY
+import cache as l2
+from settings import CENSUS_API_KEY
 
 census_bp = Blueprint("census_bp", __name__)
 
@@ -18,13 +19,13 @@ _CENSUS_URL = (
     "?get=NAME,B01001_001E&for=state:*&key={key}"
 )
 
-_pop_cache = {}  # simple in-memory cache (cleared by /api/refresh if needed)
-
 
 @census_bp.route("/api/stats/population-by-state")
 def api_population_by_state():
-    if "data" in _pop_cache:
-        return jsonify(_pop_cache["data"])
+    # L2 (Redis, 7-day TTL per cache.TTL["census"]) — shared across machines
+    cached = l2.get("census", "population-by-state")
+    if cached is not None:
+        return jsonify(cached)
 
     url = _CENSUS_URL.format(key=CENSUS_API_KEY)
     ctx = ssl.create_default_context()
@@ -47,5 +48,5 @@ def api_population_by_state():
             result.append({"label": name, "value": pop})
 
     result.sort(key=lambda x: -x["value"])
-    _pop_cache["data"] = result
+    l2.set("census", "population-by-state", result)
     return jsonify(result)

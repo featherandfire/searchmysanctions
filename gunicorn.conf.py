@@ -12,14 +12,17 @@ workers = 1
 worker_class = "gthread"
 threads = 4
 
-# Allow up to 3 minutes for a single request (worst-case cold L3 fetch)
-timeout = 180
+# Match Fly's edge proxy timeout. Cold-fetch endpoints that risk exceeding
+# this window already use the warm-cache contracts in routes/datasets.py
+# (_warm_medicaid_names, _medicaid_entities) to return [] rather than block.
+timeout = 60
 
 graceful_timeout = 30
 
 keepalive = 5
 
-bind = "0.0.0.0:5001"
+import os
+bind = f"0.0.0.0:{os.environ.get('PORT', '5001')}"
 
 accesslog = "-"
 errorlog  = "-"
