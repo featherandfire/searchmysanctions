@@ -12,6 +12,12 @@ import os
 CENSUS_API_KEY    = os.environ.get("CENSUS_API_KEY", "")
 ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
 
+# Sentry — optional. If unset, the SDK is not initialised and error tracking
+# is disabled. Set via `flyctl secrets set SENTRY_DSN=...` in prod.
+SENTRY_DSN         = os.environ.get("SENTRY_DSN", "")
+SENTRY_ENVIRONMENT = os.environ.get("SENTRY_ENVIRONMENT", "production" if os.environ.get("FLY_APP_NAME") else "local")
+SENTRY_RELEASE     = os.environ.get("SENTRY_RELEASE", "")  # set via CI to the git SHA
+
 _DEV_SECRET_KEY = "dev-secret-do-not-use-in-prod"
 SECRET_KEY = os.environ.get("SECRET_KEY", _DEV_SECRET_KEY)
 
