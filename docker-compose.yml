@@ -1,0 +1,44 @@
+# Local development infrastructure: Redis + Postgres.
+#
+# Usage:
+#   docker compose up -d
+#   export REDIS_URL=redis://localhost:6379/0
+#   export DATABASE_URL=postgresql+psycopg://app:app@localhost:5433/all_sanctions
+#   python app.py
+#
+# Postgres is mapped to host port 5433 to avoid clashing with the brokerage
+# project's container on 5432. Tests don't need this — they use fakeredis +
+# temp SQLite.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: all_sanctions
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d all_sanctions"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis_data:
+  postgres_data:
