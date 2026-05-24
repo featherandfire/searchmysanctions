@@ -17,9 +17,9 @@ import cache as l2
 logger = logging.getLogger(__name__)
 
 INDEX_URL = "https://data.opensanctions.org/datasets/latest/index.json"
-_INDEX_TTL = 3600  # seconds before re-fetching the index
 
-_cache = {}        # {"index": data, "index_ts": float}
+_cache = {}        # legacy in-process index cache — retained as a same-process
+                   # micro-cache to avoid hammering Redis on a per-request basis
 _entity_cache = {} # dataset_name -> list of flat dicts  (L1)
 
 DEFAULT_SEARCH_DATASETS = [
@@ -37,9 +37,27 @@ _NESTED_KEYS = frozenset({
 
 
 def fetch_index():
-    ts = _cache.get("index_ts", 0)
-    if "index" in _cache and time.monotonic() - ts < _INDEX_TTL:
-        return _cache["index"]
+    """
+    Return the OpenSanctions dataset index.
+
+    Lookup order:
+      1. In-process micro-cache (avoids a Redis round-trip per request)
+      2. Redis L2 (TTL = cache.TTL["index"], shared across machines)
+      3. Origin fetch, then warm both layers
+    """
+    # 1. Same-process: serves the index for the lifetime of one warmed L1 entry
+    cached = _cache.get("index")
+    if cached is not None and time.monotonic() - _cache.get("index_ts", 0) < l2.TTL["index"]:
+        return cached
+
+    # 2. Shared L2 (Redis)
+    shared = l2.get("index", "opensanctions")
+    if shared is not None:
+        _cache["index"] = shared
+        _cache["index_ts"] = time.monotonic()
+        return shared
+
+    # 3. Origin
     ctx = ssl.create_default_context()
     try:
         with urllib.request.urlopen(INDEX_URL, timeout=30, context=ctx) as resp:
@@ -49,6 +67,8 @@ def fetch_index():
         ctx.verify_mode = ssl.CERT_NONE
         with urllib.request.urlopen(INDEX_URL, timeout=30, context=ctx) as resp:
             data = json.load(resp)
+
+    l2.set("index", "opensanctions", data)
     _cache["index"] = data
     _cache["index_ts"] = time.monotonic()
     return data

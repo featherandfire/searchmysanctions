@@ -7,3 +7,10 @@ venv/
 *.log
 .DS_Store
 config.py
+.env
+.pytest_cache/
+test-results/
+playwright-report/
+l2_cache.db*
+app_data.db
+

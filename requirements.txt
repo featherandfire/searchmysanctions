@@ -15,7 +15,10 @@ pandas==2.3.3
 pgeocode==0.4.1
 python-dateutil==2.9.0.post0
 pytz==2026.1.post1
+psycopg[binary]==3.2.3
+redis==5.2.1
 requests==2.32.5
+SQLAlchemy==2.0.36
 six==1.17.0
 tzdata==2025.3
 urllib3==2.6.3

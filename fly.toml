@@ -1,0 +1,41 @@
+# Fly.io app config for all_sanctions.
+#
+# First-time setup:
+#   flyctl launch --no-deploy --copy-config
+#   flyctl postgres create --name all-sanctions-db   # then flyctl postgres attach
+#   flyctl redis create                              # provisions Upstash Redis
+#   flyctl secrets set CENSUS_API_KEY=... ETHERSCAN_API_KEY=... SECRET_KEY=...
+#   flyctl deploy
+
+app = "searchmysanctions"
+primary_region = "ord"   # adjust to your preferred region
+
+[build]
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1   # keep one machine warm to preserve L1 cache
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 20
+    hard_limit = 40
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 2048   # pandas + numpy + L1 entity cache need headroom

@@ -5,23 +5,11 @@ Helpers: is_cyber_dataset, cyber_category
 Constants: CYBER_TITLE_KEYWORDS, CYBER_DESC_KEYWORDS, CYBER_TAGS, CYBER_NAME_ALLOWLIST
 """
 
-import json
-import os
-import sys
 from flask import Blueprint, jsonify, request
 from data import fetch_index, visible_datasets, serialize_dataset, _get_entities, _get_entities_batch, _entity_cache
 import cache as l2
-
-# Ensure the project root is on the path so config.py is always importable
-# regardless of gunicorn's working directory
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-try:
-    from config import ETHERSCAN_API_KEY
-except ImportError:
-    ETHERSCAN_API_KEY = ""
-
-_NOTES_PATH   = os.path.join(os.path.dirname(__file__), '..', 'cyber_notes.json')
-_HISTORY_PATH = os.path.join(os.path.dirname(__file__), '..', 'address_history.json')
+import db
+from settings import ETHERSCAN_API_KEY
 
 cyber_bp = Blueprint("cyber_bp", __name__)
 
@@ -411,85 +399,49 @@ def api_sanctions_check_batch():
     return jsonify({"hits": hits, "checked_datasets": len(ready), "total_datasets": len(CRYPTO_SCAN_DATASETS)})
 
 
-def _load_notes():
-    try:
-        with open(_NOTES_PATH, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-
-def _save_notes(notes):
-    with open(_NOTES_PATH, 'w') as f:
-        json.dump(notes, f, indent=2)
-
-
 @cyber_bp.route("/api/notes", methods=["GET"])
 def api_notes_get():
-    return jsonify(_load_notes())
+    return jsonify(db.list_notes())
 
 
 @cyber_bp.route("/api/notes", methods=["POST"])
 def api_notes_post():
     body = request.get_json(force=True) or {}
-    notes = _load_notes()
-    note = {
-        "id":        int(__import__('time').time() * 1000),
-        "title":     (body.get("title") or "").strip(),
-        "body":      (body.get("body")  or "").strip(),
-        "tags":      [t.strip() for t in (body.get("tags") or []) if t.strip()],
-        "created_at": __import__('datetime').datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-    }
-    notes.insert(0, note)
-    _save_notes(notes)
+    note = db.create_note(
+        title=(body.get("title") or "").strip(),
+        body=(body.get("body")  or "").strip(),
+        tags=[t.strip() for t in (body.get("tags") or []) if t.strip()],
+    )
     return jsonify(note), 201
 
 
 @cyber_bp.route("/api/notes/<int:note_id>", methods=["DELETE"])
 def api_notes_delete(note_id):
-    notes = _load_notes()
-    notes = [n for n in notes if n.get("id") != note_id]
-    _save_notes(notes)
+    db.delete_note(note_id)
     return jsonify({"ok": True})
 
 
 @cyber_bp.route("/api/notes/<int:note_id>", methods=["PUT"])
 def api_notes_put(note_id):
     body = request.get_json(force=True) or {}
-    notes = _load_notes()
-    for n in notes:
-        if n.get("id") == note_id:
-            if "title" in body: n["title"] = (body["title"] or "").strip()
-            if "body"  in body: n["body"]  = (body["body"]  or "").strip()
-            if "tags"  in body: n["tags"]  = [t.strip() for t in (body["tags"] or []) if t.strip()]
-            n["updated_at"] = __import__('datetime').datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-            break
-    _save_notes(notes)
+    fields = {}
+    if "title" in body: fields["title"] = (body["title"] or "").strip()
+    if "body"  in body: fields["body"]  = (body["body"]  or "").strip()
+    if "tags"  in body: fields["tags"]  = [t.strip() for t in (body["tags"] or []) if t.strip()]
+    db.update_note(note_id, fields)
     return jsonify({"ok": True})
-
-
-def _load_history():
-    try:
-        with open(_HISTORY_PATH, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-def _save_history(history):
-    with open(_HISTORY_PATH, 'w') as f:
-        json.dump(history, f, indent=2)
 
 
 @cyber_bp.route("/api/address-history", methods=["GET"])
 def api_address_history_get():
-    return jsonify(_load_history())
+    return jsonify(db.list_address_history())
 
 
 @cyber_bp.route("/api/address-history", methods=["POST"])
 def api_address_history_post():
     """
-    Log a searched address. Deduplicates by address — moves to top if
-    already exists and updates sanctions/label fields.
+    Log a searched address. Deduplicates by address — re-posting an address
+    refreshes its `searched_at` and overwrites sanctions/label fields.
     Body: {
       "address": "0x...",
       "sanctioned": bool,
@@ -499,40 +451,29 @@ def api_address_history_post():
       "mode": "balance|txlist|tokentx"
     }
     """
-    import datetime as dt
     body    = request.get_json(force=True) or {}
     address = (body.get("address") or "").strip().lower()
     if not address:
         return jsonify({"ok": False, "error": "address required"}), 400
 
-    history = _load_history()
-    # Remove existing entry for this address so we can re-insert at top
-    history = [h for h in history if h.get("address") != address]
-
-    entry = {
-        "address":       address,
-        "sanctioned":    bool(body.get("sanctioned", False)),
-        "sanction_lists": body.get("sanction_lists", []),
-        "label":         (body.get("label") or "").strip(),
-        "referred_from": (body.get("referred_from") or "").strip().lower(),
-        "mode":          body.get("mode", "balance"),
-        "searched_at":   dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-    }
-    history.insert(0, entry)
-    _save_history(history)
+    entry = db.upsert_address_history(
+        address=address,
+        sanctioned=bool(body.get("sanctioned", False)),
+        sanction_lists=body.get("sanction_lists") or [],
+        label=(body.get("label") or "").strip(),
+        referred_from=(body.get("referred_from") or "").strip().lower(),
+        mode=body.get("mode") or "balance",
+    )
     return jsonify(entry), 201
 
 
 @cyber_bp.route("/api/address-history/<path:address>", methods=["DELETE"])
 def api_address_history_delete(address):
-    address = address.strip().lower()
-    history = _load_history()
-    history = [h for h in history if h.get("address") != address]
-    _save_history(history)
+    db.delete_address(address.strip().lower())
     return jsonify({"ok": True})
 
 
 @cyber_bp.route("/api/address-history", methods=["DELETE"])
 def api_address_history_clear():
-    _save_history([])
+    db.clear_address_history()
     return jsonify({"ok": True})
