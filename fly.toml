@@ -7,7 +7,7 @@
 #   flyctl secrets set CENSUS_API_KEY=... ETHERSCAN_API_KEY=... SECRET_KEY=...
 #   flyctl deploy
 
-app = "all-sanctions"
+app = "searchmysanctions"
 primary_region = "ord"   # adjust to your preferred region
 
 [build]
