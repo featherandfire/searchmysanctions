@@ -18,6 +18,23 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-5s %(name)s — %(message)s",
 )
 
+# Initialise Sentry before Flask so import-time errors are also reported.
+# No-op when SENTRY_DSN is unset (local/dev).
+from settings import SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_RELEASE
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[FlaskIntegration()],
+        environment=SENTRY_ENVIRONMENT,
+        release=SENTRY_RELEASE or None,
+        # Capture 10% of transactions for performance monitoring; bump if
+        # latency regressions become a concern.
+        traces_sample_rate=0.1,
+        send_default_pii=False,
+    )
+
 from flask import Flask, jsonify, render_template
 
 logger = logging.getLogger(__name__)

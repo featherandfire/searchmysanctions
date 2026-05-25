@@ -29,6 +29,11 @@ COPY routes ./routes
 COPY templates ./templates
 COPY static ./static
 
+# Git SHA of the deploy, baked in by CI via --build-arg. Sentry reads this
+# at runtime to tie errors back to the exact commit they were introduced in.
+ARG SENTRY_RELEASE=""
+ENV SENTRY_RELEASE=$SENTRY_RELEASE
+
 ENV PORT=8080
 EXPOSE 8080
 

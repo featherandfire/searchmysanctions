@@ -61,6 +61,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only
+      # Bake the git SHA into the image as SENTRY_RELEASE so errors in
+      # Sentry are tied to the exact deploy. The Dockerfile reads
+      # --build-arg SENTRY_RELEASE and exports it as a runtime ENV.
+      - run: flyctl deploy --remote-only --build-arg SENTRY_RELEASE=${{ github.sha }}
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
