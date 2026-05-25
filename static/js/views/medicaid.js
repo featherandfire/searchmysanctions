@@ -96,9 +96,18 @@ async function renderMedicaidView(tab) {
     if (!byState[state]) byState[state] = [];
     byState[state].push(ds);
   }
-  const stateList = Object.entries(byState).sort((a, b) =>
-    b[1].reduce((s, d) => s + (d.entity_count||0), 0) - a[1].reduce((s, d) => s + (d.entity_count||0), 0)
-  );
+  // Sort: states whose total target_count is 0 (no charts will populate when
+  // selected) get pushed to the bottom. Within each group, sort by entity_count
+  // desc so the most data-rich states stay at the top.
+  const stateList = Object.entries(byState).sort((a, b) => {
+    const aTargets = a[1].reduce((s, d) => s + (d.target_count || 0), 0);
+    const bTargets = b[1].reduce((s, d) => s + (d.target_count || 0), 0);
+    const aEmpty = aTargets === 0;
+    const bEmpty = bTargets === 0;
+    if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+    return b[1].reduce((s, d) => s + (d.entity_count || 0), 0)
+         - a[1].reduce((s, d) => s + (d.entity_count || 0), 0);
+  });
 
   const tabBar = `
     <div class="med-tab-bar">
