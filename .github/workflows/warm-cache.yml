@@ -1,0 +1,44 @@
+name: Warm Redis cache
+
+# Why this exists
+# ----------------
+# The entity TTL in cache.py is 24 hours. Once a dataset expires, the
+# `_medicaid_entities` warm-only contract (routes/datasets.py) returns []
+# rather than block on a cold L3 fetch — so chart endpoints silently show
+# empty until something else triggers a refresh.
+#
+# This workflow hits /api/medicaid-records?limit=1 every 12 hours. That
+# endpoint goes through _get_entities_batch which DOES fetch cold datasets
+# from origin, so all 39 medicaid datasets get re-warmed in one parallel
+# batch (~1-5s typically).
+#
+# Frequency is 12h, well inside the 24h entity TTL.
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"   # 00:00 and 12:00 UTC daily
+  workflow_dispatch:         # manual "warm now" button in the Actions tab
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger medicaid dataset warmup
+        run: |
+          echo "Hitting /api/medicaid-records to warm all 39 medicaid datasets..."
+          # --max-time guards against a stuck request blocking the workflow
+          curl -sf --max-time 120 \
+            "https://searchmysanctions.fly.dev/api/medicaid-records?limit=1" \
+            -o /dev/null -w "HTTP %{http_code} in %{time_total}s\n"
+
+      - name: Verify Alabama sector chart populated
+        run: |
+          echo "Sanity check: Alabama should now return non-empty sector data..."
+          RESULT=$(curl -sf --max-time 30 \
+            "https://searchmysanctions.fly.dev/api/stats/medicaid-by-sector?datasets=us_al_med_exclusions")
+          if [ "$RESULT" = "[]" ]; then
+            echo "::error::Alabama sector chart returned []. Warmup did not complete."
+            exit 1
+          fi
+          echo "Alabama sector data present (response length: ${#RESULT} chars)"
